@@ -54,11 +54,12 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-jdbc-h2</artifactId>
     </dependency>
-    <!-- to enable- Service Binding (requires The SBO installed in the cluster) -->
+    <!-- to enable- Service Binding (requires The SBO installed in the cluster)
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-kubernetes-service-binding</artifactId>
     </dependency> 
+    -->
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-openshift</artifactId>
@@ -77,12 +78,11 @@
     -->
 
     <!-- Enable Micrometer for prometheus metrics.
-     Default metrics are exposed though /q/metrics endpoint
+     Default metrics are exposed though /q/metrics endpoint -->
      <dependency>
        <groupId>io.quarkus</groupId>
        <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
       </dependency>
-    -->
 
     <!-- testing -->
     <dependency>
