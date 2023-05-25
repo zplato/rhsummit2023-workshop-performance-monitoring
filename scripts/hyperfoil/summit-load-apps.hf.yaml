@@ -1,0 +1,164 @@
+name: summit-lab-load-apps
+http:
+- host: !param APP_URL #http://quarkus-app:8080
+  name: app-host
+  sharedConnections: !param SHARED_CONN 200 #evenly distributed among agents and threads.
+
+ergonomics: # Disable stopping the scenario on 4xx or 5xx response
+  autoRangeCheck: false
+  stopOnInvalid: false
+
+# Distribute the connections among two agents
+# COMMENTS OUT IF RUNING LOCALLY ON STANDALONE MODE!
+agents:
+  agent-01:
+    node: kubernetes.io/os=linux
+    extras: "-Dio.hyperfoil.jitter.watchdog.threshold=300"
+    stop: true
+  agent-02:
+    node: kubernetes.io/os=linux
+    extras: "-Dio.hyperfoil.jitter.watchdog.threshold=300"
+    stop: true
+  agent-03:
+    node: kubernetes.io/os=linux
+    extras: "-Dio.hyperfoil.jitter.watchdog.threshold=300"
+    stop: true
+
+#all phases are started independently at the same moment (when the benchmark was started)
+phases:
+# This first phase will wake-up the services as they might be scaled to zero (serverless default behavior)
+# in JVM mode they may take between 3-8 secs due to the cold start effect
+- wakeUp:
+    # The benchmark will start certain number of users according to a schedule 
+    # regardless of previously started users completing the scenario. 
+    # This is the open-model
+    atOnce:
+      users: 1 # run the scenario exactly once
+      # duration: 15s
+      scenario:
+      - serviceWakeup: #sequence
+        - httpRequest:
+            GET: !param APP_CONTEXT_PATH
+            endpoint: app-host
+            sync: false
+            timeout: 60s
+            sla:
+              blockedRatio: 1.0
+              errorRatio: 1.0
+              invalidRatio: 1.0
+              meanResponseTime: 30s
+
+        # This step waits until responses for all sent requests are received and processed.
+        - awaitAllResponses
+
+- hello:
+    constantRate:
+      startAfterStrict: wakeUp # will wait until the wakeUp phase is TERMINATED (all requests done!)
+      # 10 users will be starting the scenario every second (during 60s)
+      usersPerSec: !param USERS_PER_SEC 10 # run the scenario 'n' times per second in average
+      maxSessions: 200
+      duration: 180s #let it run for about 3min...
+      # In Hyperfoil, everything is pre-allocated = limited in size. Here we'll
+      # set that we won't run more than LOOP (1 by default) iterations of this phase.
+      # maxIterations: !param LOOP 1
+      scenario:
+      - sayHello: #sequence
+        - httpRequest:
+            GET: !param APP_CONTEXT_PATH
+            endpoint: app-host
+        # Wait 3 seconds to simulate user-interaction
+        - thinkTime:
+            duration: 50 ms
+
+- cpuRampUp:
+    increasingRate:
+      initialUsersPerSec: 1
+      targetUsersPerSec: !param USERS_PER_SEC 10
+      # We expect at most n users being active at one moment - see below
+      maxSessions: 100
+      duration: !param PHASE_DURATION_SECS 60s
+      #maxIterations: !param LOOP 1
+      startAfterStrict: 
+      - wakeUp
+      scenario:
+      - fetchCpu:
+        - set:
+            var: cpuIterations
+            value: !param CPU_ITERATIONS 5
+        - set:
+            var: contextPath
+            value: !param APP_CONTEXT_PATH
+        - httpRequest:
+            GET: ${contextPath}/cpu?iterations=${cpuIterations}&desc=Agent:${hyperfoil.agent.id},RunId:${hyperfoil.run.id},Phase:${hyperfoil.phase.name},Iteration:${hyperfoil.phase.iteration},SessionId:${hyperfoil.session.id}
+            endpoint: app-host
+        - thinkTime:
+            duration: 100 ms
+
+- cpuWithPersistence:
+    increasingRate:
+      initialUsersPerSec: 1
+      targetUsersPerSec: !param USERS_PER_SEC 10
+      maxSessions: 100
+      duration: !param PHASE_DURATION_SECS 60s
+      startAfterStrict: 
+      - wakeUp
+      - cpuRampUp
+      scenario:
+      - fetchCpu:
+        - set:
+            var: cpuIterations
+            value: !param CPU_ITERATIONS 5
+        - set:
+            var: contextPath
+            value: !param APP_CONTEXT_PATH
+        - httpRequest:
+            GET: ${contextPath}/cpu?iterations=${cpuIterations}&db=true&desc=Agent:${hyperfoil.agent.id},RunId:${hyperfoil.run.id},Phase:${hyperfoil.phase.name},Iteration:${hyperfoil.phase.iteration},SessionId:${hyperfoil.session.id}
+            endpoint: app-host
+        - thinkTime:
+            duration: 100 ms
+
+- memoryRampUp:
+    increasingRate:
+      initialUsersPerSec: 1
+      targetUsersPerSec: !param USERS_PER_SEC 10
+      maxSessions: 100   
+      duration: !param PHASE_DURATION_SECS 60s
+      startAfterStrict: 
+      - wakeUp
+      - cpuRampUp
+      scenario:
+      - allocateMem:
+        - set:
+            var: memoryBytes
+            value: !param MEMORY_BITES 20
+        - set:
+            var: contextPath
+            value: !param APP_CONTEXT_PATH
+        - httpRequest:
+            GET: ${contextPath}/memory?bites=${memoryBytes}&desc=Agent:${hyperfoil.agent.id},RunId:${hyperfoil.run.id},Phase:${hyperfoil.phase.name},Iteration:${hyperfoil.phase.iteration},SessionId:${hyperfoil.session.id}
+            endpoint: app-host
+        - thinkTime:
+            duration: 100 ms
+
+- memoryWithPersistence:
+    increasingRate:
+      initialUsersPerSec: 1
+      targetUsersPerSec: !param USERS_PER_SEC 10
+      maxSessions: 100
+      duration: !param PHASE_DURATION_SECS 60s
+      startAfterStrict: 
+      - wakeUp
+      - memoryRampUp
+      scenario:
+      - allocateMem:
+        - set:
+            var: memoryBytes
+            value: !param MEMORY_BITES 20
+        - set:
+            var: contextPath
+            value: !param APP_CONTEXT_PATH
+        - httpRequest:
+            GET: ${contextPath}/memory?bites=${memoryBytes}&db=true&desc=Agent:${hyperfoil.agent.id},RunId:${hyperfoil.run.id},Phase:${hyperfoil.phase.name},Iteration:${hyperfoil.phase.iteration},SessionId:${hyperfoil.session.id}
+            endpoint: app-host
+        - thinkTime:
+            duration: 100 ms
